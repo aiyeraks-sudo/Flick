@@ -28,6 +28,24 @@ function emailConfigured() {
   return !!process.env.RESEND_API_KEY;
 }
 
+function iMessageConfigured() {
+  return !!(process.env.SENDBLUE_API_KEY_ID && process.env.SENDBLUE_SECRET_KEY);
+}
+
+async function sendIMessage(phone, content) {
+  if (!iMessageConfigured()) return;
+  const number = phone.startsWith('+') ? phone : `+1${phone.replace(/\D/g, '')}`;
+  await fetch('https://api.sendblue.co/api/send-message', {
+    method: 'POST',
+    headers: {
+      'sb-api-key-id': process.env.SENDBLUE_API_KEY_ID,
+      'sb-api-secret-key': process.env.SENDBLUE_SECRET_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ number, content }),
+  });
+}
+
 async function sendInviteEmail(challenge, invite) {
   if (!emailConfigured()) return;
   const acceptLink = `${BASE_URL}/invite?token=${invite.token}&action=accept`;
@@ -79,18 +97,55 @@ app.get('/api/users', (req, res) => {
 
 // Register / upsert user
 app.post('/api/users', (req, res) => {
-  const { name, email } = req.body;
+  const { name, email, phone } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const db = readDB();
   const existing = db.users.find(u => u.name === name);
   if (existing) {
     if (email) existing.email = email;
+    if (phone) existing.phone = phone;
     writeDB(db);
   } else {
-    db.users.push({ name, email: email || null, joinedAt: new Date().toISOString() });
+    db.users.push({ name, email: email || null, phone: phone || null, joinedAt: new Date().toISOString() });
     writeDB(db);
   }
   res.json({ name });
+});
+
+// Invite a friend by email or phone
+app.post('/api/users/invite', async (req, res) => {
+  const { email, phone, invitedBy } = req.body;
+  if ((!email && !phone) || !invitedBy) return res.status(400).json({ error: 'email or phone, and invitedBy required' });
+
+  const db = readDB();
+  const existing = db.users.find(u => (email && u.email === email) || (phone && u.phone === phone));
+  if (!existing) {
+    db.users.push({ name: email || phone, email: email || null, phone: phone || null, joinedAt: new Date().toISOString(), pending: true });
+    writeDB(db);
+  }
+
+  const inviteMsg = `${invitedBy} invited you to Flick 🎯 — bet on yourself, prove it with a photo. Join: ${BASE_URL}`;
+
+  await Promise.allSettled([
+    email && emailConfigured() ? resend.emails.send({
+      from: 'Flick <onboarding@resend.dev>',
+      to: email,
+      subject: `${invitedBy} invited you to Flick 🎯`,
+      html: `
+        <div style="font-family:sans-serif;max-width:500px;margin:0 auto">
+          <h2>You're invited to Flick</h2>
+          <p><strong>${invitedBy}</strong> wants you to join them on Flick — the app where you bet on yourself.</p>
+          <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0">
+            <p style="margin:0;color:#555">Set a challenge, put money on the line, prove it with a photo. Winners take the pot.</p>
+          </div>
+          <a href="${BASE_URL}" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:8px">Join Flick →</a>
+          <p style="color:#aaa;font-size:12px;margin-top:24px">Flick — Bet on yourself.</p>
+        </div>`,
+    }) : null,
+    phone ? sendIMessage(phone, inviteMsg) : null,
+  ]);
+
+  res.json({ ok: true });
 });
 
 // Create challenge
@@ -125,11 +180,13 @@ app.post('/api/challenges', async (req, res) => {
 
   db.challenges.push(challenge);
 
-  // Notify directly-added members by email if they have one registered
+  // Notify directly-added members via email + iMessage
   for (const memberName of extraMembers) {
     const user = db.users.find(u => u.name === memberName);
-    if (user && user.email && emailConfigured()) {
-      resend.emails.send({
+    if (!user) continue;
+    const challengeMsg = `${createdBy} challenged you on Flick 🎯\n"${challenge.name}" — $${challenge.stakePerPerson}/person. Deadline: ${new Date(challenge.deadline).toLocaleString()}\nOpen Flick: ${BASE_URL}`;
+    Promise.allSettled([
+      user.email && emailConfigured() ? resend.emails.send({
         from: 'Flick <onboarding@resend.dev>',
         to: user.email,
         subject: `${createdBy} challenged you on Flick 🎯`,
@@ -147,8 +204,9 @@ app.post('/api/challenges', async (req, res) => {
             <a href="${BASE_URL}" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:8px">Open Flick →</a>
             <p style="color:#aaa;font-size:12px;margin-top:24px">Flick — Bet on yourself.</p>
           </div>`,
-      }).catch(console.error);
-    }
+      }) : null,
+      user.phone ? sendIMessage(user.phone, challengeMsg) : null,
+    ]).catch(console.error);
   }
 
   writeDB(db);
@@ -181,6 +239,20 @@ app.get('/invite', (req, res) => {
   }
   writeDB(db);
   res.redirect(`/?join=${found.id}&invited=${encodeURIComponent(invite.email)}&action=${action}`);
+});
+
+// Join a challenge
+app.post('/api/challenges/:id/join', (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'username required' });
+  const db = readDB();
+  const challenge = db.challenges.find(c => c.id === req.params.id);
+  if (!challenge) return res.status(404).json({ error: 'Not found' });
+  if (challenge.status !== 'active') return res.status(400).json({ error: 'Challenge is no longer open' });
+  if (challenge.members.includes(username)) return res.status(400).json({ error: 'Already a member' });
+  challenge.members.push(username);
+  writeDB(db);
+  res.json(challenge);
 });
 
 // Send invite to additional emails
