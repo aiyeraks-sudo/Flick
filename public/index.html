@@ -9,19 +9,60 @@
 <body>
 
 <header>
-  <div style="display:flex;align-items:center;gap:16px">
+  <div style="display:flex;align-items:center;gap:14px">
     <button class="back-btn" id="globalBack" onclick="goBack()" style="display:none">← Back</button>
-    <h1>Flick</h1>
+    <h1 onclick="goHome()" style="cursor:pointer">Flick</h1>
+    <span style="font-size:0.85rem;opacity:0.6">Bet on yourself.</span>
   </div>
-  <span>Bet on yourself.</span>
+  <div style="display:flex;align-items:center;gap:10px">
+    <button id="walletBtn" class="wallet-btn" onclick="openWallet()" style="display:none">💰 $0.00</button>
+    <!-- Profile (signed in) -->
+    <div id="profileChip" class="profile-chip" style="display:none" onclick="openProfile()">
+      <div class="profile-avatar" id="profileAvatar"></div>
+      <span id="profileName"></span>
+    </div>
+    <!-- Sign in (not signed in) -->
+    <button id="signInBtn" class="sign-in-btn" onclick="openSignIn()">Sign In</button>
+  </div>
 </header>
 
-<div class="username-bar">
-  <span>Playing as:</span>
-  <input type="text" id="usernameInput" placeholder="Enter your name">
-  <button onclick="setUsername()">Set</button>
-  <strong id="usernameDisplay" style="display:none"></strong>
-  <button id="walletBtn" class="wallet-btn" onclick="openWallet()" style="display:none">💰 $0.00</button>
+<!-- Sign-in screen (full page gate) -->
+<div id="signin-screen">
+  <div class="signin-card">
+    <h1 class="signin-logo">Flick</h1>
+    <p class="signin-tagline">Bet on yourself.</p>
+    <div class="form-group">
+      <label>Your name</label>
+      <input type="text" id="profileNameInput" placeholder="e.g. Michael Manning" autocomplete="name">
+    </div>
+    <div class="form-group">
+      <label>Email <span style="font-weight:400;color:#888">(optional)</span></label>
+      <input type="email" id="profileEmailInput" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label>Phone <span style="font-weight:400;color:#888">(optional — for iMessage notifications)</span></label>
+      <input type="tel" id="profilePhoneInput" placeholder="+1 555 000 0000" autocomplete="tel">
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="createProfile()">Let's go →</button>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div id="profileModal" class="modal-overlay" onclick="closeProfileOnOverlay(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Your Profile</h2>
+      <button class="modal-close" onclick="closeProfile()">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
+      <div class="profile-avatar profile-avatar-lg" id="profileAvatarLg"></div>
+      <div>
+        <div style="font-size:1.2rem;font-weight:700" id="profileModalName"></div>
+        <div style="font-size:0.82rem;color:#aaa" id="profileModalEmail"></div>
+      </div>
+    </div>
+    <button class="btn btn-secondary" style="width:100%" onclick="signOut()">Sign Out</button>
+  </div>
 </div>
 
 <!-- Wallet Modal -->
@@ -66,7 +107,7 @@
   </div>
 </div>
 
-<main>
+<main id="app-main" style="display:none">
   <!-- Home: list challenges -->
   <div id="view-home" class="view active">
     <div class="view-header">
@@ -78,6 +119,7 @@
       <button class="tab-btn active" id="tab-active" onclick="switchTab('active')">Active</button>
       <button class="tab-btn" id="tab-history" onclick="switchTab('history')">History</button>
       <button class="tab-btn" id="tab-friends" onclick="switchTab('friends')">Friends</button>
+      <button class="tab-btn" id="tab-feed" onclick="switchTab('feed')">Feed</button>
     </div>
 
     <!-- Active tab -->
@@ -93,8 +135,18 @@
       <div id="list-history"></div>
     </div>
 
+    <!-- Feed tab -->
+    <div id="tab-content-feed" style="display:none">
+      <div id="list-feed"></div>
+    </div>
+
     <!-- Friends tab -->
     <div id="tab-content-friends" style="display:none">
+      <div class="add-friend-bar">
+        <input type="email" id="addFriendEmail" placeholder="Email address">
+        <input type="tel" id="addFriendPhone" placeholder="Phone (iMessage)">
+        <button class="btn btn-primary" onclick="addFriend()">+ Invite</button>
+      </div>
       <div id="list-friends"></div>
     </div>
   </div>
