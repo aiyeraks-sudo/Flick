@@ -1,7 +1,22 @@
 let currentUser = localStorage.getItem('flick_user') || '';
 let currentChallengeId = null;
+let viewHistory = [];
 
 if (currentUser) showUserBadge();
+
+// ── URL params (invite accept/decline redirect) ───────
+const params = new URLSearchParams(window.location.search);
+if (params.get('join')) {
+  currentChallengeId = params.get('join');
+  const invited = params.get('invited');
+  const action = params.get('action');
+  if (invited && action === 'accept') {
+    localStorage.setItem('flick_user', invited);
+    currentUser = invited;
+    showUserBadge();
+  }
+  window.history.replaceState({}, '', '/');
+}
 
 function setUsername() {
   const val = document.getElementById('usernameInput').value.trim();
@@ -25,11 +40,19 @@ function requireUser() {
   return true;
 }
 
-function showView(id) {
+function showView(id, pushHistory = true) {
+  const current = document.querySelector('.view.active');
+  if (pushHistory && current && current.id !== id) viewHistory.push(current.id);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  if (id === 'view-home') loadChallenges();
+  document.getElementById('globalBack').style.display = id === 'view-home' ? 'none' : 'inline-block';
+  if (id === 'view-home') { viewHistory = []; loadChallenges(); }
   if (id === 'view-detail' && currentChallengeId) loadDetail(currentChallengeId);
+}
+
+function goBack() {
+  const prev = viewHistory.pop() || 'view-home';
+  showView(prev, false);
 }
 
 function toast(msg) {
@@ -43,12 +66,49 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+// ── Wallet ────────────────────────────────────────────
+
+function getWallets() {
+  return JSON.parse(localStorage.getItem('flick_wallets') || '{}');
+}
+
+function getBalance(user) {
+  return getWallets()[user] ?? 100;
+}
+
+function setBalance(user, amount) {
+  const wallets = getWallets();
+  wallets[user] = amount;
+  localStorage.setItem('flick_wallets', JSON.stringify(wallets));
+  updateBalanceDisplay();
+}
+
+function updateBalanceDisplay() {
+  const bar = document.getElementById('usernameDisplay');
+  if (!currentUser) return;
+  const bal = getBalance(currentUser);
+  bar.textContent = `${currentUser}  ·  $${Number(bal).toFixed(2)}`;
+}
+
+function addFunds() {
+  const amt = parseFloat(prompt('How much to add? ($)'));
+  if (isNaN(amt) || amt <= 0) return toast('Invalid amount');
+  setBalance(currentUser, getBalance(currentUser) + amt);
+  toast(`Added $${amt.toFixed(2)} to your wallet`);
+}
+
 // ── Home ──────────────────────────────────────────────
 
 async function loadChallenges() {
+  if (currentUser) updateBalanceDisplay();
   const res = await fetch('/api/challenges');
   const challenges = await res.json();
   const el = document.getElementById('challenges-list');
+
+  if (currentChallengeId) {
+    const target = challenges.find(c => c.id === currentChallengeId);
+    if (target) { openChallenge(currentChallengeId); currentChallengeId = null; return; }
+  }
 
   if (!challenges.length) {
     el.innerHTML = `<div class="empty-state"><p>No challenges yet.</p><button class="btn btn-primary" onclick="showView('view-create')">Create the first one</button></div>`;
@@ -62,10 +122,7 @@ async function loadChallenges() {
         <span class="badge badge-${c.status}">${c.status}</span>
       </div>
       <div class="meta">By ${c.createdBy} · ${c.members.length} members · Deadline: ${formatDate(c.deadline)}</div>
-      <div>
-        <strong>$${c.stakePerPerson}</strong> per person &nbsp;·&nbsp;
-        ${c.proofs.length}/${c.members.length} proofs submitted
-      </div>
+      <div><strong>$${c.stakePerPerson}</strong> per person &nbsp;·&nbsp; ${c.proofs.length}/${c.members.length} proofs submitted</div>
     </div>
   `).join('');
 }
@@ -78,21 +135,21 @@ async function createChallenge() {
   const description = document.getElementById('c-desc').value.trim();
   const deadline = document.getElementById('c-deadline').value;
   const stakePerPerson = document.getElementById('c-stake').value;
-  const membersRaw = document.getElementById('c-members').value;
+  const emailsRaw = document.getElementById('c-emails').value;
 
   if (!name || !deadline || !stakePerPerson) return toast('Name, deadline, and stake are required');
 
-  const members = membersRaw.split(',').map(m => m.trim()).filter(Boolean);
+  const inviteEmails = emailsRaw.split(',').map(e => e.trim()).filter(Boolean);
 
   const res = await fetch('/api/challenges', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description, deadline, stakePerPerson, createdBy: currentUser, members })
+    body: JSON.stringify({ name, description, deadline, stakePerPerson, createdBy: currentUser, inviteEmails })
   });
 
   if (!res.ok) { const e = await res.json(); return toast(e.error); }
   const challenge = await res.json();
-  toast('Challenge created!');
+  toast(inviteEmails.length ? `Challenge created! Invites sent to ${inviteEmails.length} friend(s).` : 'Challenge created!');
   currentChallengeId = challenge.id;
   showView('view-detail');
 }
@@ -113,6 +170,21 @@ async function loadDetail(id) {
   const isMember = c.members.includes(currentUser);
   const totalPot = c.stakePerPerson * c.members.length;
 
+  // Invitations list
+  let invitesHtml = '';
+  if (c.invitations && c.invitations.length > 0) {
+    invitesHtml = `
+      <div class="section-title">Invitations</div>
+      <div class="invites-list">
+        ${c.invitations.map(i => `
+          <div class="invite-row">
+            <span>${i.email}</span>
+            <span class="invite-status invite-${i.status}">${i.status}</span>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  // Proofs
   let proofsHtml = '';
   if (c.proofs.length === 0) {
     proofsHtml = '<div class="no-proofs">No proofs submitted yet.</div>';
@@ -130,7 +202,7 @@ async function loadDetail(id) {
         <div class="vote-btns">
           <button class="btn btn-success btn-sm" onclick="vote('${c.id}', '${p.userId}', true)">✓ Legit</button>
           <button class="btn btn-danger btn-sm" onclick="vote('${c.id}', '${p.userId}', false)">✗ Fake</button>
-        </div>` : (alreadyVoted && p.verified === null ? '<div style="font-size:0.8rem;color:#888">Voted ✓</div>' : '');
+        </div>` : (alreadyVoted && p.verified === null ? '<div style="font-size:0.8rem;color:#888">Voted</div>' : '');
 
       return `
         <div class="proof-card">
@@ -145,29 +217,41 @@ async function loadDetail(id) {
     }).join('')}</div>`;
   }
 
+  // Settlement
   let settlementHtml = '';
   if (c.status === 'settled' && c.settlement) {
     const s = c.settlement;
     settlementHtml = `
       <div class="settlement-box">
         <h3>Settlement</h3>
-        ${s.winners.length > 0 ? `<p>🏆 Winners: <strong>${s.winners.join(', ')}</strong></p>` : ''}
-        ${s.losers.length > 0 ? `<p>💸 Losers: <strong>${s.losers.join(', ')}</strong></p>` : ''}
+        ${s.winners.length > 0 ? `<p>Winners: <strong>${s.winners.join(', ')}</strong></p>` : ''}
+        ${s.losers.length > 0 ? `<p>Losers: <strong>${s.losers.join(', ')}</strong></p>` : ''}
         ${s.totalPot > 0
-          ? `<p>Winners each get: <strong>$${s.winnerShare}</strong> from the $${s.totalPot} pot</p>`
+          ? `<p>Winners each receive: <strong>$${s.winnerShare}</strong> from the $${s.totalPot} pot</p>`
           : `<p>Everyone succeeded — all stakes returned!</p>`}
       </div>`;
   }
 
+  // Submit proof
   const submitBtn = isMember && !userProof && c.status === 'active' ? `
-    <div style="margin-top:16px">
+    <div style="margin-top:20px">
       <div class="section-title">Submit Your Proof</div>
-      <input type="file" id="proofFile" accept="image/*" style="margin-bottom:8px">
+      <input type="file" id="proofFile" accept="image/*" style="margin-bottom:8px;display:block">
       <button class="btn btn-primary" onclick="submitProof('${c.id}')">Submit Photo</button>
     </div>` : '';
 
   const joinBtn = !isMember && c.status === 'active' ? `
     <button class="btn btn-secondary" style="margin-top:12px" onclick="joinChallenge('${c.id}')">Join Challenge</button>` : '';
+
+  // Send more invites
+  const inviteMoreHtml = (c.createdBy === currentUser && c.status === 'active') ? `
+    <div class="invite-section">
+      <div class="section-title">Invite More Friends</div>
+      <div class="invite-row-input">
+        <input type="text" id="extraEmails" placeholder="email@example.com, ...">
+        <button class="btn btn-secondary btn-sm" onclick="sendMoreInvites('${c.id}')">Send Invites</button>
+      </div>
+    </div>` : '';
 
   el.innerHTML = `
     <div class="challenge-detail">
@@ -181,14 +265,30 @@ async function loadDetail(id) {
         <div class="info-item"><div class="label">Total Pot</div><div class="value">$${totalPot}</div></div>
         <div class="info-item"><div class="label">Deadline</div><div class="value" style="font-size:0.95rem">${formatDate(c.deadline)}</div></div>
       </div>
-      <div class="section-title">Members</div>
+      <div class="section-title">Members (${c.members.length})</div>
       <div class="members-list">${c.members.map(m => `<span class="member-chip">${m}</span>`).join('')}</div>
+      ${invitesHtml}
       ${joinBtn}
       <div class="section-title">Proofs (${c.proofs.length}/${c.members.length})</div>
       ${proofsHtml}
       ${submitBtn}
       ${settlementHtml}
+      ${inviteMoreHtml}
     </div>`;
+}
+
+async function sendMoreInvites(id) {
+  const raw = document.getElementById('extraEmails').value;
+  const emails = raw.split(',').map(e => e.trim()).filter(Boolean);
+  if (!emails.length) return toast('Enter at least one email');
+  const res = await fetch(`/api/challenges/${id}/invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emails })
+  });
+  if (!res.ok) { const e = await res.json(); return toast(e.error); }
+  toast(`Invites sent to ${emails.length} friend(s)!`);
+  loadDetail(id);
 }
 
 async function joinChallenge(id) {
@@ -207,11 +307,9 @@ async function submitProof(id) {
   if (!requireUser()) return;
   const file = document.getElementById('proofFile').files[0];
   if (!file) return toast('Select a photo first');
-
   const form = new FormData();
   form.append('username', currentUser);
   form.append('photo', file);
-
   const res = await fetch(`/api/challenges/${id}/proof`, { method: 'POST', body: form });
   if (!res.ok) { const e = await res.json(); return toast(e.error); }
   toast('Proof submitted!');
