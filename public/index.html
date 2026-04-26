@@ -9,7 +9,10 @@
 <body>
 
 <header>
-  <h1>Flick</h1>
+  <div style="display:flex;align-items:center;gap:16px">
+    <button class="back-btn" id="globalBack" onclick="goBack()" style="display:none">← Back</button>
+    <h1>Flick</h1>
+  </div>
   <span>Bet on yourself.</span>
 </header>
 
@@ -32,7 +35,6 @@
 
   <!-- Create challenge -->
   <div id="view-create" class="view">
-    <button class="btn-back" onclick="showView('view-home')">← Back</button>
     <div class="form-card">
       <h2 style="margin-bottom:20px">New Challenge</h2>
       <div class="form-group">
@@ -41,7 +43,7 @@
       </div>
       <div class="form-group">
         <label>Description <span style="font-weight:400;color:#888">(what should the photo show?)</span></label>
-        <textarea id="c-desc" placeholder="e.g. Photo at the gym entrance, photo of your notes, photo at the library — proof is always a photo."></textarea>
+        <textarea id="c-desc" placeholder="e.g. Photo at the gym entrance, photo of your notes — proof is always a photo."></textarea>
       </div>
       <div class="form-group">
         <label>Deadline</label>
@@ -52,16 +54,16 @@
         <input type="number" id="c-stake" placeholder="20" min="1">
       </div>
       <div class="form-group">
-        <label>Invite members (comma-separated names)</label>
-        <input type="text" id="c-members" placeholder="alice, bob, charlie">
+        <label>Invite friends by email <span style="font-weight:400;color:#888">(comma-separated)</span></label>
+        <input type="text" id="c-emails" placeholder="alice@gmail.com, bob@gmail.com">
+        <div style="font-size:0.78rem;color:#aaa;margin-top:4px">They'll get an email to accept or decline.</div>
       </div>
-      <button class="btn btn-primary" onclick="createChallenge()">Create Challenge</button>
+      <button class="btn btn-primary" onclick="createChallenge()">Create & Send Invites</button>
     </div>
   </div>
 
   <!-- Challenge detail -->
   <div id="view-detail" class="view">
-    <button class="btn-back" onclick="showView('view-home')">← Back</button>
     <div id="detail-content"></div>
   </div>
 </main>
