@@ -1,50 +1,110 @@
-let currentUser = localStorage.getItem('flick_user') || '';
+// ── Auth state ────────────────────────────────────────
+let storedUser = localStorage.getItem('flick_user') || '';
+if (storedUser.includes('@')) { localStorage.removeItem('flick_user'); storedUser = ''; }
+
+let currentUser      = storedUser;
+let currentUserEmail = localStorage.getItem('flick_email') || '';
 let currentChallengeId = null;
 let viewHistory = [];
-
-if (currentUser) showUserBadge();
 
 // ── URL params (invite accept/decline redirect) ───────
 const params = new URLSearchParams(window.location.search);
 if (params.get('join')) {
   currentChallengeId = params.get('join');
   const invited = params.get('invited');
-  const action = params.get('action');
-  if (invited && action === 'accept') {
-    localStorage.setItem('flick_user', invited);
-    currentUser = invited;
-    showUserBadge();
+  const action   = params.get('action');
+  if (invited && action === 'accept' && !currentUser) {
+    const nameHint = invited.includes('@') ? invited.split('@')[0] : invited;
+    document.getElementById('profileNameInput').value = nameHint;
   }
   window.history.replaceState({}, '', '/');
 }
 
-function setUsername() {
-  const val = document.getElementById('usernameInput').value.trim();
-  if (!val) return toast('Enter a name first');
-  currentUser = val;
-  localStorage.setItem('flick_user', val);
-  fetch('/api/users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: val }),
-  }).catch(() => {});
-  showUserBadge();
+// ── Boot ──────────────────────────────────────────────
+if (currentUser) {
+  showApp();
+} else {
+  showSignInScreen();
+}
+
+// ── Profile / Auth ────────────────────────────────────
+
+function showSignInScreen() {
+  document.getElementById('signin-screen').style.display = 'flex';
+  document.getElementById('app-main').style.display      = 'none';
+  document.getElementById('profileChip').style.display   = 'none';
+  document.getElementById('walletBtn').style.display     = 'none';
+  document.getElementById('signInBtn').style.display     = 'none';
+  setTimeout(() => document.getElementById('profileNameInput').focus(), 100);
+}
+
+function showApp() {
+  document.getElementById('signin-screen').style.display = 'none';
+  document.getElementById('app-main').style.display      = 'block';
+  document.getElementById('signInBtn').style.display     = 'none';
+  const initial = currentUser.charAt(0).toUpperCase();
+  document.getElementById('profileAvatar').textContent    = initial;
+  document.getElementById('profileAvatarLg').textContent  = initial;
+  document.getElementById('profileName').textContent      = currentUser;
+  document.getElementById('profileModalName').textContent = currentUser;
+  document.getElementById('profileModalEmail').textContent = currentUserEmail || 'No email set';
+  document.getElementById('profileChip').style.display   = 'flex';
+  document.getElementById('walletBtn').style.display     = 'inline-flex';
+  updateBalanceDisplay();
   loadChallenges();
 }
 
-function showUserBadge() {
-  document.getElementById('usernameInput').style.display = 'none';
-  document.querySelector('.username-bar button:not(#walletBtn)').style.display = 'none';
-  const display = document.getElementById('usernameDisplay');
-  display.style.display = 'inline';
-  display.textContent = currentUser;
-  document.getElementById('walletBtn').style.display = 'inline-flex';
-  updateBalanceDisplay();
+function createProfile() {
+  const name  = document.getElementById('profileNameInput').value.trim();
+  const email = document.getElementById('profileEmailInput').value.trim();
+  const phone = document.getElementById('profilePhoneInput').value.trim();
+  if (!name) return toast('Enter your name');
+  currentUser      = name;
+  currentUserEmail = email;
+  localStorage.setItem('flick_user', name);
+  if (email) localStorage.setItem('flick_email', email);
+  if (phone) localStorage.setItem('flick_phone', phone);
+  fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email: email || undefined, phone: phone || undefined }),
+  }).catch(() => {});
+  showApp();
 }
 
+function openProfile() {
+  document.getElementById('profileModal').classList.add('open');
+}
+function closeProfile() {
+  document.getElementById('profileModal').classList.remove('open');
+}
+function closeProfileOnOverlay(e) {
+  if (e.target === document.getElementById('profileModal')) closeProfile();
+}
+
+function signOut() {
+  localStorage.removeItem('flick_user');
+  localStorage.removeItem('flick_email');
+  currentUser      = '';
+  currentUserEmail = '';
+  closeProfile();
+  document.getElementById('profileNameInput').value = '';
+  document.getElementById('profileEmailInput').value = '';
+  showSignInScreen();
+}
+
+document.getElementById('profileNameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') createProfile();
+});
+
 function requireUser() {
-  if (!currentUser) { toast('Set your name first'); return false; }
+  if (!currentUser) { showSignInScreen(); return false; }
   return true;
+}
+
+function goHome() {
+  if (!currentUser) return;
+  showView('view-home', false);
 }
 
 function showView(id, pushHistory = true) {
@@ -146,19 +206,104 @@ let activeTab = 'active';
 
 function switchTab(tab) {
   activeTab = tab;
-  document.getElementById('tab-content-active').style.display  = tab === 'active'  ? 'block' : 'none';
-  document.getElementById('tab-content-history').style.display = tab === 'history' ? 'block' : 'none';
-  document.getElementById('tab-content-friends').style.display = tab === 'friends' ? 'block' : 'none';
-  ['active', 'history', 'friends'].forEach(t =>
-    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab)
-  );
+  ['active', 'history', 'friends', 'feed'].forEach(t => {
+    document.getElementById(`tab-content-${t}`).style.display = t === tab ? 'block' : 'none';
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+  });
   if (tab === 'history') renderHistory();
   if (tab === 'friends') loadFriends();
+  if (tab === 'feed')    renderFeed();
+}
+
+// ── Feed ─────────────────────────────────────────────
+
+let allUsers = [];
+
+async function renderFeed() {
+  const el = document.getElementById('list-feed');
+  el.innerHTML = '<div class="empty-sub">Loading...</div>';
+
+  const [usersRes, challengesRes] = await Promise.all([
+    fetch('/api/users'),
+    fetch('/api/challenges'),
+  ]);
+  allUsers      = await usersRes.json();
+  allChallenges = await challengesRes.json();
+
+  const now = new Date();
+  const feedChallenges = allChallenges.filter(c =>
+    new Date(c.deadline) >= now &&
+    !c.members.includes(currentUser)
+  );
+
+  if (!feedChallenges.length) {
+    el.innerHTML = '<div class="empty-state"><p>Nothing in the feed yet.<br>When your friends create challenges you\'ll see them here.</p></div>';
+    return;
+  }
+
+  el.innerHTML = feedChallenges.map(c => {
+    const knownMembers = c.members.filter(m => allUsers.find(u => u.name === m));
+    const memberAvatars = c.members.map(m =>
+      `<span class="feed-avatar" title="${m}">${m.charAt(0).toUpperCase()}</span>`
+    ).join('');
+
+    const memberNames = c.members.length === 1
+      ? c.members[0]
+      : c.members.length === 2
+        ? `${c.members[0]} and ${c.members[1]}`
+        : `${c.members[0]}, ${c.members[1]} +${c.members.length - 2} more`;
+
+    const newPot = (c.members.length + 1) * c.stakePerPerson;
+
+    return `
+      <div class="feed-card" onclick="openChallenge('${c.id}')">
+        <div class="feed-card-top">
+          <div class="feed-avatars">${memberAvatars}</div>
+          <span class="badge badge-${c.status}">${c.status}</span>
+        </div>
+        <div class="feed-who">${memberNames} ${c.members.length === 1 ? 'is' : 'are'} betting on this</div>
+        <h3 class="feed-title">${c.name}</h3>
+        ${c.description ? `<p class="feed-desc">${c.description}</p>` : ''}
+        <div class="feed-meta">
+          <span>$${c.stakePerPerson}/person</span>
+          <span>·</span>
+          <span>${c.members.length} in · pot $${c.stakePerPerson * c.members.length}</span>
+          <span>·</span>
+          <span>Ends ${formatDate(c.deadline)}</span>
+        </div>
+        <button class="btn btn-primary feed-join-btn" onclick="event.stopPropagation(); joinChallenge('${c.id}')">
+          Join · split becomes $${newPot} pot
+        </button>
+      </div>`;
+  }).join('');
 }
 
 // ── Friends ───────────────────────────────────────────
 
 let quickChallengeFriend = null;
+
+async function addFriend() {
+  if (!requireUser()) return;
+  const email = document.getElementById('addFriendEmail').value.trim();
+  const phone = document.getElementById('addFriendPhone').value.trim();
+  if (!email && !phone) return toast('Enter an email or phone number');
+  if (email && !email.includes('@')) return toast('Enter a valid email');
+  const btn = document.querySelector('.add-friend-bar button');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  const res = await fetch('/api/users/invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email || undefined, phone: phone || undefined, invitedBy: currentUser }),
+  });
+  btn.disabled = false;
+  btn.textContent = '+ Invite';
+  if (!res.ok) return toast('Failed to send invite');
+  document.getElementById('addFriendEmail').value = '';
+  document.getElementById('addFriendPhone').value = '';
+  toast(`Invite sent to ${email || phone}!`);
+  loadFriends();
+}
 
 async function loadFriends() {
   const el = document.getElementById('list-friends');
@@ -495,11 +640,13 @@ async function joinChallenge(id) {
   const res = await fetch(`/api/challenges/${id}/join`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: currentUser })
+    body: JSON.stringify({ username: currentUser }),
   });
   if (!res.ok) { const e = await res.json(); return toast(e.error); }
-  toast('Joined challenge!');
-  loadDetail(id);
+  allChallenges = await (await fetch('/api/challenges')).json();
+  toast('You\'re in! Pot updated.');
+  if (activeTab === 'feed') renderFeed();
+  else openChallenge(id);
 }
 
 async function submitProof(id) {
