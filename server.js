@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -15,19 +15,13 @@ const DB_PATH = path.join(__dirname, 'data/db.json');
 const upload = multer({ dest: 'uploads/' });
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
-const mailer = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 function readDB() { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); }
 function writeDB(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
 
 function emailConfigured() {
-  return process.env.GMAIL_USER && process.env.GMAIL_USER !== 'your_gmail@gmail.com';
+  return !!process.env.RESEND_API_KEY;
 }
 
 async function sendInviteEmail(challenge, invite) {
@@ -35,8 +29,8 @@ async function sendInviteEmail(challenge, invite) {
   const acceptLink = `${BASE_URL}/invite?token=${invite.token}&action=accept`;
   const declineLink = `${BASE_URL}/invite?token=${invite.token}&action=decline`;
 
-  await mailer.sendMail({
-    from: `"Flick" <${process.env.GMAIL_USER}>`,
+  await resend.emails.send({
+    from: 'Flick <onboarding@resend.dev>',
     to: invite.email,
     subject: `${challenge.createdBy} challenged you on Flick 🎯`,
     html: `
