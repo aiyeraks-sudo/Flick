@@ -23,16 +23,23 @@ function setUsername() {
   if (!val) return toast('Enter a name first');
   currentUser = val;
   localStorage.setItem('flick_user', val);
+  fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: val }),
+  }).catch(() => {});
   showUserBadge();
   loadChallenges();
 }
 
 function showUserBadge() {
   document.getElementById('usernameInput').style.display = 'none';
-  document.querySelector('.username-bar button').style.display = 'none';
+  document.querySelector('.username-bar button:not(#walletBtn)').style.display = 'none';
   const display = document.getElementById('usernameDisplay');
   display.style.display = 'inline';
   display.textContent = currentUser;
+  document.getElementById('walletBtn').style.display = 'inline-flex';
+  updateBalanceDisplay();
 }
 
 function requireUser() {
@@ -84,47 +91,239 @@ function setBalance(user, amount) {
 }
 
 function updateBalanceDisplay() {
-  const bar = document.getElementById('usernameDisplay');
   if (!currentUser) return;
   const bal = getBalance(currentUser);
-  bar.textContent = `${currentUser}  ·  $${Number(bal).toFixed(2)}`;
+  const btn = document.getElementById('walletBtn');
+  if (btn) btn.textContent = `💰 $${Number(bal).toFixed(2)}`;
+  const modal = document.getElementById('modalBalance');
+  if (modal) modal.textContent = `$${Number(bal).toFixed(2)}`;
 }
 
-function addFunds() {
-  const amt = parseFloat(prompt('How much to add? ($)'));
-  if (isNaN(amt) || amt <= 0) return toast('Invalid amount');
+function openWallet() {
+  if (!requireUser()) return;
+  updateBalanceDisplay();
+  document.getElementById('walletModal').classList.add('open');
+}
+
+function closeWallet() {
+  document.getElementById('walletModal').classList.remove('open');
+}
+
+function closeWalletOnOverlay(e) {
+  if (e.target === document.getElementById('walletModal')) closeWallet();
+}
+
+function setTopUpAmount(amt) {
+  document.getElementById('topUpAmount').value = amt;
+}
+
+function doTopUp() {
+  const amt = parseFloat(document.getElementById('topUpAmount').value);
+  if (isNaN(amt) || amt <= 0) return toast('Enter a valid amount');
   setBalance(currentUser, getBalance(currentUser) + amt);
+  document.getElementById('topUpAmount').value = '';
   toast(`Added $${amt.toFixed(2)} to your wallet`);
+}
+
+function doWithdraw() {
+  const amt = parseFloat(document.getElementById('withdrawAmount').value);
+  const routing = document.getElementById('bankRouting').value.trim();
+  const account = document.getElementById('bankAccount').value.trim();
+  if (isNaN(amt) || amt <= 0) return toast('Enter a valid amount');
+  if (!routing || !account) return toast('Enter your bank details');
+  const bal = getBalance(currentUser);
+  if (amt > bal) return toast(`Insufficient balance ($${bal.toFixed(2)})`);
+  setBalance(currentUser, bal - amt);
+  document.getElementById('withdrawAmount').value = '';
+  document.getElementById('bankRouting').value = '';
+  document.getElementById('bankAccount').value = '';
+  toast(`Withdrawal of $${amt.toFixed(2)} initiated`);
 }
 
 // ── Home ──────────────────────────────────────────────
 
-async function loadChallenges() {
-  if (currentUser) updateBalanceDisplay();
-  const res = await fetch('/api/challenges');
-  const challenges = await res.json();
-  const el = document.getElementById('challenges-list');
+let activeTab = 'active';
 
-  if (currentChallengeId) {
-    const target = challenges.find(c => c.id === currentChallengeId);
-    if (target) { openChallenge(currentChallengeId); currentChallengeId = null; return; }
-  }
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('tab-content-active').style.display  = tab === 'active'  ? 'block' : 'none';
+  document.getElementById('tab-content-history').style.display = tab === 'history' ? 'block' : 'none';
+  document.getElementById('tab-content-friends').style.display = tab === 'friends' ? 'block' : 'none';
+  ['active', 'history', 'friends'].forEach(t =>
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab)
+  );
+  if (tab === 'history') renderHistory();
+  if (tab === 'friends') loadFriends();
+}
 
-  if (!challenges.length) {
-    el.innerHTML = `<div class="empty-state"><p>No challenges yet.</p><button class="btn btn-primary" onclick="showView('view-create')">Create the first one</button></div>`;
+// ── Friends ───────────────────────────────────────────
+
+let quickChallengeFriend = null;
+
+async function loadFriends() {
+  const el = document.getElementById('list-friends');
+  el.innerHTML = '<div class="empty-sub">Loading...</div>';
+  const res = await fetch('/api/users');
+  const users = await res.json();
+  const others = users.filter(u => u.name !== currentUser);
+
+  if (!others.length) {
+    el.innerHTML = '<div class="empty-state"><p>No other users on Flick yet.</p></div>';
     return;
   }
 
-  el.innerHTML = challenges.map(c => `
+  el.innerHTML = others.map(u => `
+    <div class="friend-card">
+      <div class="friend-avatar">${u.name.charAt(0).toUpperCase()}</div>
+      <div class="friend-info">
+        <div class="friend-name">${u.name}</div>
+        <div class="friend-joined">Joined ${formatDate(u.joinedAt)}</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openQuickChallenge('${u.name}')">Challenge →</button>
+    </div>
+  `).join('');
+}
+
+function openQuickChallenge(friendName) {
+  if (!requireUser()) return;
+  quickChallengeFriend = friendName;
+  document.getElementById('qc-friend-name').textContent = friendName;
+  document.getElementById('qc-name').value = '';
+  document.getElementById('qc-deadline').value = '';
+  document.getElementById('qc-stake').value = '';
+  document.getElementById('quickChallengeModal').classList.add('open');
+}
+
+function closeQuickChallenge() {
+  document.getElementById('quickChallengeModal').classList.remove('open');
+  quickChallengeFriend = null;
+}
+
+function closeQuickChallengeOnOverlay(e) {
+  if (e.target === document.getElementById('quickChallengeModal')) closeQuickChallenge();
+}
+
+async function sendQuickChallenge() {
+  if (!requireUser() || !quickChallengeFriend) return;
+  const name     = document.getElementById('qc-name').value.trim();
+  const deadline = document.getElementById('qc-deadline').value;
+  const stake    = document.getElementById('qc-stake').value;
+  if (!name || !deadline || !stake) return toast('Fill in all fields');
+
+  const res = await fetch('/api/challenges', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      deadline,
+      stakePerPerson: stake,
+      createdBy: currentUser,
+      directMembers: [quickChallengeFriend],
+    }),
+  });
+  if (!res.ok) { const e = await res.json(); return toast(e.error); }
+  closeQuickChallenge();
+  toast(`Challenge pushed to ${quickChallengeFriend}!`);
+  allChallenges = await (await fetch('/api/challenges')).json();
+  switchTab('active');
+}
+
+function challengeCard(c) {
+  return `
     <div class="card" onclick="openChallenge('${c.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <h3>${c.name}</h3>
         <span class="badge badge-${c.status}">${c.status}</span>
       </div>
-      <div class="meta">By ${c.createdBy} · ${c.members.length} members · Deadline: ${formatDate(c.deadline)}</div>
-      <div><strong>$${c.stakePerPerson}</strong> per person &nbsp;·&nbsp; ${c.proofs.length}/${c.members.length} proofs submitted</div>
-    </div>
-  `).join('');
+      <div class="meta">By ${c.createdBy} · ${c.members.length} member${c.members.length !== 1 ? 's' : ''} · Deadline: ${formatDate(c.deadline)}</div>
+      <div><strong>$${c.stakePerPerson}</strong> per person</div>
+    </div>`;
+}
+
+function inviteStatusRow(c) {
+  if (!c.invitations || !c.invitations.length) return '';
+  const accepted = c.invitations.filter(i => i.status === 'accepted').length;
+  const declined = c.invitations.filter(i => i.status === 'declined').length;
+  const pending  = c.invitations.filter(i => i.status === 'pending').length;
+  return `
+    <div class="card" onclick="openChallenge('${c.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <h3>${c.name}</h3>
+        <span class="badge badge-${c.status}">${c.status}</span>
+      </div>
+      <div class="meta">Deadline: ${formatDate(c.deadline)} · <strong>$${c.stakePerPerson}</strong>/person</div>
+      <div class="invite-tally">
+        ${accepted ? `<span class="tally tally-accepted">✓ ${accepted} accepted</span>` : ''}
+        ${declined ? `<span class="tally tally-declined">✗ ${declined} declined</span>` : ''}
+        ${pending  ? `<span class="tally tally-pending">⏳ ${pending} pending</span>` : ''}
+      </div>
+    </div>`;
+}
+
+let allChallenges = [];
+
+async function loadChallenges() {
+  if (currentUser) updateBalanceDisplay();
+  const res = await fetch('/api/challenges');
+  allChallenges = await res.json();
+
+  if (currentChallengeId) {
+    const target = allChallenges.find(c => c.id === currentChallengeId);
+    if (target) { openChallenge(currentChallengeId); currentChallengeId = null; return; }
+  }
+
+  renderActiveTab();
+  if (activeTab === 'history') renderHistory();
+}
+
+function renderActiveTab() {
+  const now = new Date();
+  const sent = allChallenges.filter(c => c.createdBy === currentUser && new Date(c.deadline) >= now);
+  const open = allChallenges.filter(c => c.createdBy !== currentUser && new Date(c.deadline) >= now);
+
+  const sentEl = document.getElementById('list-sent');
+  const openEl = document.getElementById('list-open');
+
+  sentEl.innerHTML = sent.length
+    ? sent.map(inviteStatusRow).join('')
+    : '<div class="empty-sub">No active challenges created by you.</div>';
+
+  openEl.innerHTML = open.length
+    ? open.map(challengeCard).join('')
+    : '<div class="empty-sub">No open challenges from others right now.</div>';
+}
+
+function renderHistory() {
+  const el = document.getElementById('list-history');
+  const closed = allChallenges.filter(c => new Date(c.deadline) < new Date());
+
+  if (!closed.length) {
+    el.innerHTML = '<div class="empty-state"><p>No bet history yet.</p></div>';
+    return;
+  }
+
+  el.innerHTML = closed.map(c => {
+    const s = c.settlement;
+    const won  = s && s.winners.includes(currentUser);
+    const lost = s && s.losers.includes(currentUser);
+    const outcomeTag = c.status === 'settled'
+      ? (won
+          ? `<span class="tally tally-accepted">Won $${s.winnerShare}</span>`
+          : lost
+            ? `<span class="tally tally-declined">Lost $${c.stakePerPerson}</span>`
+            : `<span class="tally tally-pending">Settled</span>`)
+      : `<span class="tally tally-pending">Awaiting settlement</span>`;
+
+    return `
+      <div class="card" onclick="openChallenge('${c.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <h3>${c.name}</h3>
+          <span class="badge badge-${c.status}">${c.status}</span>
+        </div>
+        <div class="meta">By ${c.createdBy} · Ended ${formatDate(c.deadline)}</div>
+        <div class="invite-tally">${outcomeTag}</div>
+      </div>`;
+  }).join('');
 }
 
 // ── Create ────────────────────────────────────────────
