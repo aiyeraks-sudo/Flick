@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flick</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Flick</h1>
+  <span>Bet on yourself.</span>
+</header>
+
+<div class="username-bar">
+  <span>Playing as:</span>
+  <input type="text" id="usernameInput" placeholder="Enter your name">
+  <button onclick="setUsername()">Set</button>
+  <strong id="usernameDisplay" style="display:none"></strong>
+</div>
+
+<main>
+  <!-- Home: list challenges -->
+  <div id="view-home" class="view active">
+    <div class="view-header">
+      <h2>Challenges</h2>
+      <button class="btn btn-primary" onclick="showView('view-create')">+ New Challenge</button>
+    </div>
+    <div id="challenges-list"></div>
+  </div>
+
+  <!-- Create challenge -->
+  <div id="view-create" class="view">
+    <button class="btn-back" onclick="showView('view-home')">← Back</button>
+    <div class="form-card">
+      <h2 style="margin-bottom:20px">New Challenge</h2>
+      <div class="form-group">
+        <label>Challenge name</label>
+        <input type="text" id="c-name" placeholder="e.g. Hit the gym by 9am">
+      </div>
+      <div class="form-group">
+        <label>Description (optional)</label>
+        <textarea id="c-desc" placeholder="What counts as proof?"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Deadline</label>
+        <input type="datetime-local" id="c-deadline">
+      </div>
+      <div class="form-group">
+        <label>Stake per person ($)</label>
+        <input type="number" id="c-stake" placeholder="20" min="1">
+      </div>
+      <div class="form-group">
+        <label>Invite members (comma-separated names)</label>
+        <input type="text" id="c-members" placeholder="alice, bob, charlie">
+      </div>
+      <button class="btn btn-primary" onclick="createChallenge()">Create Challenge</button>
+    </div>
+  </div>
+
+  <!-- Challenge detail -->
+  <div id="view-detail" class="view">
+    <button class="btn-back" onclick="showView('view-home')">← Back</button>
+    <div id="detail-content"></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
