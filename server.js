@@ -17,7 +17,11 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-function readDB() { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); }
+function readDB() {
+  const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+  if (!data.users) data.users = [];
+  return data;
+}
 function writeDB(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
 
 function emailConfigured() {
@@ -67,9 +71,31 @@ app.get('/api/challenges/:id', (req, res) => {
   res.json(c);
 });
 
+// List users
+app.get('/api/users', (req, res) => {
+  const db = readDB();
+  res.json(db.users);
+});
+
+// Register / upsert user
+app.post('/api/users', (req, res) => {
+  const { name, email } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const db = readDB();
+  const existing = db.users.find(u => u.name === name);
+  if (existing) {
+    if (email) existing.email = email;
+    writeDB(db);
+  } else {
+    db.users.push({ name, email: email || null, joinedAt: new Date().toISOString() });
+    writeDB(db);
+  }
+  res.json({ name });
+});
+
 // Create challenge
 app.post('/api/challenges', async (req, res) => {
-  const { name, description, deadline, stakePerPerson, createdBy, inviteEmails } = req.body;
+  const { name, description, deadline, stakePerPerson, createdBy, inviteEmails, directMembers } = req.body;
   if (!name || !deadline || !stakePerPerson || !createdBy) {
     return res.status(400).json({ error: 'name, deadline, stakePerPerson, and createdBy are required' });
   }
@@ -81,6 +107,8 @@ app.post('/api/challenges', async (req, res) => {
     status: 'pending',
   }));
 
+  const extraMembers = (directMembers || []).filter(m => m && m !== createdBy);
+
   const challenge = {
     id: uuidv4(),
     name,
@@ -88,7 +116,7 @@ app.post('/api/challenges', async (req, res) => {
     deadline,
     stakePerPerson: Number(stakePerPerson),
     createdBy,
-    members: [createdBy],
+    members: [createdBy, ...extraMembers],
     invitations,
     proofs: [],
     status: 'active',
@@ -96,6 +124,33 @@ app.post('/api/challenges', async (req, res) => {
   };
 
   db.challenges.push(challenge);
+
+  // Notify directly-added members by email if they have one registered
+  for (const memberName of extraMembers) {
+    const user = db.users.find(u => u.name === memberName);
+    if (user && user.email && emailConfigured()) {
+      resend.emails.send({
+        from: 'Flick <onboarding@resend.dev>',
+        to: user.email,
+        subject: `${createdBy} challenged you on Flick 🎯`,
+        html: `
+          <div style="font-family:sans-serif;max-width:500px;margin:0 auto">
+            <h2>You've been challenged!</h2>
+            <p><strong>${createdBy}</strong> pushed a challenge directly to you:</p>
+            <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0">
+              <h3 style="margin:0 0 8px">${challenge.name}</h3>
+              ${challenge.description ? `<p style="color:#555;margin:0 0 8px">${challenge.description}</p>` : ''}
+              <p style="margin:0">Stake: <strong>$${challenge.stakePerPerson}</strong> per person</p>
+              <p style="margin:4px 0 0">Deadline: <strong>${new Date(challenge.deadline).toLocaleString()}</strong></p>
+            </div>
+            <p>Head to Flick to submit your proof.</p>
+            <a href="${BASE_URL}" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:8px">Open Flick →</a>
+            <p style="color:#aaa;font-size:12px;margin-top:24px">Flick — Bet on yourself.</p>
+          </div>`,
+      }).catch(console.error);
+    }
+  }
+
   writeDB(db);
 
   for (const invite of invitations) {
