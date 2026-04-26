@@ -203,3 +203,189 @@ main { max-width: 800px; margin: 0 auto; padding: 24px; }
 .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; }
 .alert-success { background: #dcfce7; color: #166534; }
 .alert-info { background: #dbeafe; color: #1e40af; }
+
+/* Friend cards */
+.friend-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.friend-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #111;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.friend-info { flex: 1; min-width: 0; }
+.friend-name { font-weight: 700; font-size: 0.95rem; }
+.friend-joined { font-size: 0.78rem; color: #aaa; margin-top: 2px; }
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  background: #f0f0f0;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 24px;
+}
+.tab-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #888;
+  transition: background 0.15s, color 0.15s;
+}
+.tab-btn.active { background: #fff; color: #111; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+
+/* Section labels inside home */
+.home-section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #aaa;
+  margin-bottom: 12px;
+}
+
+/* Empty sub-section */
+.empty-sub {
+  color: #bbb;
+  font-size: 0.88rem;
+  padding: 12px 0 4px;
+}
+
+/* Invite tally chips */
+.invite-tally { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.tally {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.tally-accepted { background: #dcfce7; color: #166534; }
+.tally-declined { background: #fee2e2; color: #991b1b; }
+.tally-pending  { background: #fef9c3; color: #854d0e; }
+
+/* Wallet button */
+.wallet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #111;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.15s, transform 0.1s;
+}
+.wallet-btn:hover { background: #333; transform: scale(1.03); }
+
+/* Modal overlay */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal-box {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 420px;
+  padding: 28px 28px 24px;
+  margin: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.modal-header h2 { font-size: 1.3rem; }
+.modal-close {
+  background: #f3f4f6;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-close:hover { background: #e5e7eb; }
+
+.wallet-balance-display {
+  background: #000;
+  color: #fff;
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+.wallet-balance-label { font-size: 0.78rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.wallet-balance-amount { font-size: 2.2rem; font-weight: 700; letter-spacing: -1px; }
+
+.wallet-section { margin-bottom: 24px; }
+.wallet-section:last-child { margin-bottom: 0; }
+
+.wallet-amounts {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.amount-chip {
+  flex: 1;
+  min-width: 56px;
+  padding: 8px 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #f9f9f9;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+.amount-chip:hover { background: #111; color: #fff; border-color: #111; }
+
+.wallet-input-row {
+  display: flex;
+  gap: 8px;
+}
+.wallet-input-row input {
+  flex: 1;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+}
