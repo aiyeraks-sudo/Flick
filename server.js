@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -12,16 +13,53 @@ app.use('/uploads', express.static('uploads'));
 
 const DB_PATH = path.join(__dirname, 'data/db.json');
 const upload = multer({ dest: 'uploads/' });
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
-function readDB() {
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+const mailer = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
+
+function readDB() { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); }
+function writeDB(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
+
+function emailConfigured() {
+  return process.env.GMAIL_USER && process.env.GMAIL_USER !== 'your_gmail@gmail.com';
 }
 
-function writeDB(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+async function sendInviteEmail(challenge, invite) {
+  if (!emailConfigured()) return;
+  const acceptLink = `${BASE_URL}/invite?token=${invite.token}&action=accept`;
+  const declineLink = `${BASE_URL}/invite?token=${invite.token}&action=decline`;
+
+  await mailer.sendMail({
+    from: `"Flick" <${process.env.GMAIL_USER}>`,
+    to: invite.email,
+    subject: `${challenge.createdBy} challenged you on Flick 🎯`,
+    html: `
+      <div style="font-family:sans-serif;max-width:500px;margin:0 auto">
+        <h2>You've been challenged!</h2>
+        <p><strong>${challenge.createdBy}</strong> wants you to join:</p>
+        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0">
+          <h3 style="margin:0 0 8px">${challenge.name}</h3>
+          ${challenge.description ? `<p style="color:#555;margin:0 0 8px">${challenge.description}</p>` : ''}
+          <p style="margin:0">Stake: <strong>$${challenge.stakePerPerson}</strong> per person</p>
+          <p style="margin:4px 0 0">Deadline: <strong>${new Date(challenge.deadline).toLocaleString()}</strong></p>
+        </div>
+        <p>Proof is always a photo. Accept to join, decline to pass.</p>
+        <div style="margin-top:16px;display:flex;gap:12px">
+          <a href="${acceptLink}" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block">Accept →</a>
+          <a href="${declineLink}" style="background:#f0f0f0;color:#111;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;margin-left:12px">Decline</a>
+        </div>
+        <p style="color:#aaa;font-size:12px;margin-top:24px">Flick — Bet on yourself.</p>
+      </div>`,
+  });
 }
 
-// List all challenges
+// List challenges
 app.get('/api/challenges', (req, res) => {
   const db = readDB();
   res.json(db.challenges);
@@ -30,19 +68,25 @@ app.get('/api/challenges', (req, res) => {
 // Get one challenge
 app.get('/api/challenges/:id', (req, res) => {
   const db = readDB();
-  const challenge = db.challenges.find(c => c.id === req.params.id);
-  if (!challenge) return res.status(404).json({ error: 'Not found' });
-  res.json(challenge);
+  const c = db.challenges.find(c => c.id === req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  res.json(c);
 });
 
 // Create challenge
-app.post('/api/challenges', (req, res) => {
-  const { name, description, deadline, stakePerPerson, createdBy, members } = req.body;
+app.post('/api/challenges', async (req, res) => {
+  const { name, description, deadline, stakePerPerson, createdBy, inviteEmails } = req.body;
   if (!name || !deadline || !stakePerPerson || !createdBy) {
     return res.status(400).json({ error: 'name, deadline, stakePerPerson, and createdBy are required' });
   }
   const db = readDB();
-  const allMembers = [...new Set([createdBy, ...(members || [])])];
+
+  const invitations = (inviteEmails || []).map(email => ({
+    email: email.trim(),
+    token: uuidv4(),
+    status: 'pending',
+  }));
+
   const challenge = {
     id: uuidv4(),
     name,
@@ -50,30 +94,71 @@ app.post('/api/challenges', (req, res) => {
     deadline,
     stakePerPerson: Number(stakePerPerson),
     createdBy,
-    members: allMembers,
+    members: [createdBy],
+    invitations,
     proofs: [],
     status: 'active',
     createdAt: new Date().toISOString(),
   };
+
   db.challenges.push(challenge);
   writeDB(db);
+
+  for (const invite of invitations) {
+    sendInviteEmail(challenge, invite).catch(console.error);
+  }
+
   res.json(challenge);
 });
 
-// Join challenge
-app.post('/api/challenges/:id/join', (req, res) => {
-  const { username } = req.body;
-  if (!username) return res.status(400).json({ error: 'username required' });
+// Accept or decline invite via token
+app.get('/invite', (req, res) => {
+  const { token, action } = req.query;
+  if (!token || !['accept', 'decline'].includes(action)) {
+    return res.redirect('/?error=invalid_invite');
+  }
+  const db = readDB();
+  let found = null;
+  let invite = null;
+  for (const c of db.challenges) {
+    invite = (c.invitations || []).find(i => i.token === token);
+    if (invite) { found = c; break; }
+  }
+  if (!found || !invite) return res.redirect('/?error=invite_not_found');
+
+  invite.status = action === 'accept' ? 'accepted' : 'declined';
+  if (action === 'accept' && !found.members.includes(invite.email)) {
+    found.members.push(invite.email);
+  }
+  writeDB(db);
+  res.redirect(`/?join=${found.id}&invited=${encodeURIComponent(invite.email)}&action=${action}`);
+});
+
+// Send invite to additional emails
+app.post('/api/challenges/:id/invite', async (req, res) => {
+  const { emails } = req.body;
+  if (!emails || !emails.length) return res.status(400).json({ error: 'emails required' });
   const db = readDB();
   const challenge = db.challenges.find(c => c.id === req.params.id);
   if (!challenge) return res.status(404).json({ error: 'Not found' });
-  if (challenge.status !== 'active') return res.status(400).json({ error: 'Challenge is no longer active' });
-  if (!challenge.members.includes(username)) challenge.members.push(username);
+
+  const newInvites = emails.map(email => ({
+    email: email.trim(),
+    token: uuidv4(),
+    status: 'pending',
+  }));
+
+  challenge.invitations = [...(challenge.invitations || []), ...newInvites];
   writeDB(db);
+
+  for (const invite of newInvites) {
+    sendInviteEmail(challenge, invite).catch(console.error);
+  }
+
   res.json(challenge);
 });
 
-// Submit proof (photo)
+// Submit proof
 app.post('/api/challenges/:id/proof', upload.single('photo'), (req, res) => {
   const { username } = req.body;
   if (!username || !req.file) return res.status(400).json({ error: 'username and photo required' });
@@ -93,12 +178,7 @@ app.post('/api/challenges/:id/proof', upload.single('photo'), (req, res) => {
     verified: null,
   };
   challenge.proofs.push(proof);
-
-  // Move to voting if all members submitted
-  if (challenge.proofs.length === challenge.members.length) {
-    challenge.status = 'voting';
-  }
-
+  if (challenge.proofs.length === challenge.members.length) challenge.status = 'voting';
   writeDB(db);
   res.json(challenge);
 });
@@ -121,7 +201,6 @@ app.post('/api/challenges/:id/vote', (req, res) => {
 
   proof.votes[voter] = approved;
 
-  // Check if all votes are in for this proof
   const otherMembers = challenge.members.filter(m => m !== targetUser);
   const allVoted = otherMembers.every(m => proof.votes[m] !== undefined);
   if (allVoted) {
@@ -129,10 +208,9 @@ app.post('/api/challenges/:id/vote', (req, res) => {
     proof.verified = approvals > otherMembers.length / 2;
   }
 
-  // Auto-settle if all proofs have verdicts
-  const allVerified = challenge.proofs.length === challenge.members.length &&
+  const allSettled = challenge.proofs.length === challenge.members.length &&
     challenge.proofs.every(p => p.verified !== null);
-  if (allVerified) {
+  if (allSettled) {
     const winners = challenge.proofs.filter(p => p.verified).map(p => p.userId);
     const losers = challenge.proofs.filter(p => !p.verified).map(p => p.userId);
     const totalPot = losers.length * challenge.stakePerPerson;
