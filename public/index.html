@@ -21,6 +21,49 @@
   <input type="text" id="usernameInput" placeholder="Enter your name">
   <button onclick="setUsername()">Set</button>
   <strong id="usernameDisplay" style="display:none"></strong>
+  <button id="walletBtn" class="wallet-btn" onclick="openWallet()" style="display:none">💰 $0.00</button>
+</div>
+
+<!-- Wallet Modal -->
+<div id="walletModal" class="modal-overlay" onclick="closeWalletOnOverlay(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Wallet</h2>
+      <button class="modal-close" onclick="closeWallet()">✕</button>
+    </div>
+    <div class="wallet-balance-display">
+      <div class="wallet-balance-label">Available Balance</div>
+      <div class="wallet-balance-amount" id="modalBalance">$0.00</div>
+    </div>
+
+    <div class="wallet-section">
+      <div class="section-title">Top Up</div>
+      <div class="wallet-amounts">
+        <button class="amount-chip" onclick="setTopUpAmount(10)">$10</button>
+        <button class="amount-chip" onclick="setTopUpAmount(25)">$25</button>
+        <button class="amount-chip" onclick="setTopUpAmount(50)">$50</button>
+        <button class="amount-chip" onclick="setTopUpAmount(100)">$100</button>
+      </div>
+      <div class="wallet-input-row">
+        <input type="number" id="topUpAmount" placeholder="Custom amount" min="1">
+        <button class="btn btn-primary" onclick="doTopUp()">Add Funds</button>
+      </div>
+    </div>
+
+    <div class="wallet-section">
+      <div class="section-title">Withdraw to Bank</div>
+      <div class="form-group" style="margin-bottom:10px">
+        <input type="number" id="withdrawAmount" placeholder="Amount to withdraw" min="1" style="border:1px solid #ddd;border-radius:6px;padding:10px 12px;font-size:0.95rem;width:100%">
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <input type="text" id="bankRouting" placeholder="Routing number" style="border:1px solid #ddd;border-radius:6px;padding:10px 12px;font-size:0.95rem;width:100%">
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <input type="text" id="bankAccount" placeholder="Account number" style="border:1px solid #ddd;border-radius:6px;padding:10px 12px;font-size:0.95rem;width:100%">
+      </div>
+      <button class="btn btn-secondary" style="width:100%" onclick="doWithdraw()">Withdraw</button>
+    </div>
+  </div>
 </div>
 
 <main>
@@ -30,7 +73,53 @@
       <h2>Challenges</h2>
       <button class="btn btn-primary" onclick="showView('view-create')">+ New Challenge</button>
     </div>
-    <div id="challenges-list"></div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-active" onclick="switchTab('active')">Active</button>
+      <button class="tab-btn" id="tab-history" onclick="switchTab('history')">History</button>
+      <button class="tab-btn" id="tab-friends" onclick="switchTab('friends')">Friends</button>
+    </div>
+
+    <!-- Active tab -->
+    <div id="tab-content-active">
+      <div class="home-section-label">Sent by You</div>
+      <div id="list-sent"></div>
+      <div class="home-section-label" style="margin-top:24px">Open Challenges</div>
+      <div id="list-open"></div>
+    </div>
+
+    <!-- History tab -->
+    <div id="tab-content-history" style="display:none">
+      <div id="list-history"></div>
+    </div>
+
+    <!-- Friends tab -->
+    <div id="tab-content-friends" style="display:none">
+      <div id="list-friends"></div>
+    </div>
+  </div>
+
+  <!-- Quick Challenge Modal -->
+  <div id="quickChallengeModal" class="modal-overlay" onclick="closeQuickChallengeOnOverlay(event)">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2>Challenge <span id="qc-friend-name"></span></h2>
+        <button class="modal-close" onclick="closeQuickChallenge()">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Challenge name</label>
+        <input type="text" id="qc-name" placeholder="e.g. Hit the gym by 9am">
+      </div>
+      <div class="form-group">
+        <label>Deadline</label>
+        <input type="datetime-local" id="qc-deadline">
+      </div>
+      <div class="form-group">
+        <label>Stake per person ($)</label>
+        <input type="number" id="qc-stake" placeholder="20" min="1">
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="sendQuickChallenge()">Push Challenge →</button>
+    </div>
   </div>
 
   <!-- Create challenge -->
